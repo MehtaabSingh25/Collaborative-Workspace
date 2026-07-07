@@ -1,18 +1,23 @@
 import dotenv from "dotenv";
+import { z } from "zod";
+import type { StringValue } from "ms";
 
 dotenv.config();
 
-const requiredEnv = ["MONGODB_URI", "PORT"] as const;
+const envSchema = z.object({
+  PORT: z.string().default("5000"),
 
-for (const key of requiredEnv) {
-  if (!process.env[key]) {
-    throw new Error(`Missing environment variable: ${key}`);
-  }
-}
+  MONGODB_URI: z.string().min(1),
 
-const env = {
-  PORT: process.env.PORT!,
-  MONGODB_URI: process.env.MONGODB_URI!,
-};
+  JWT_ACCESS_SECRET: z.string().min(1),
+
+  JWT_REFRESH_SECRET: z.string().min(1),
+
+  ACCESS_TOKEN_EXPIRES_IN: z.custom<StringValue>(),
+
+  REFRESH_TOKEN_EXPIRES_IN: z.custom<StringValue>(),
+});
+
+const env = envSchema.parse(process.env);
 
 export default env;
