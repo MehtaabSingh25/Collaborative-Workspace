@@ -5,7 +5,7 @@ const errorMiddleware = (
   error: Error,
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   // If the error was created using AppError, preserve its status code.
   if (error instanceof AppError) {

@@ -8,18 +8,8 @@ import { Request, Response, NextFunction } from "express";
  * try/catch block that simply calls next(error).
  */
 const asyncHandler =
-  (
-    fn: (
-      req: Request,
-      res: Response,
-      next: NextFunction
-    ) => Promise<void>
-  ) =>
-  (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ) => {
+  (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) =>
+  (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 
