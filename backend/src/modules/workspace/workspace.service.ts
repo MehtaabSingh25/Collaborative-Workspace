@@ -135,3 +135,48 @@ export const inviteMember = async (
     message: "Invitation sent successfully",
   };
 };
+
+export const acceptInvitation = async (workspaceId: string, userId: string) => {
+  const membership = await WorkspaceMember.findOne({
+    workspace: workspaceId,
+    user: userId,
+    status: MembershipStatus.PENDING,
+  });
+
+  if (!membership) {
+    throw new AppError("Invitation not found", 404);
+  }
+
+  membership.status = MembershipStatus.ACTIVE;
+  membership.joinedAt = new Date();
+
+  await membership.save();
+
+  return {
+    success: true,
+    message: "Invitation accepted successfully",
+  };
+};
+
+export const getPendingInvitations = async (userId: string) => {
+  const invitations = await WorkspaceMember.find({
+    user: userId,
+    status: MembershipStatus.PENDING,
+  })
+    .populate({
+      path: "workspace",
+      select: "name description",
+    })
+    .populate({
+      path: "invitedBy",
+      select: "name email",
+    })
+    .sort({
+      createdAt: -1,
+    });
+
+  return {
+    success: true,
+    data: invitations,
+  };
+};

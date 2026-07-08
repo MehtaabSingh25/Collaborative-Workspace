@@ -5,6 +5,8 @@ import {
   getMyWorkspacesController,
   getWorkspaceByIdController,
   inviteMemberController,
+  acceptInvitationController,
+  getPendingInvitationsController,
 } from "./workspace.controller.js";
 
 const router = Router();
@@ -13,8 +15,12 @@ router.post("/", protect, createWorkspaceController);
 
 router.get("/", protect, getMyWorkspacesController);
 
-router.get("/:workspaceId", protect, getWorkspaceByIdController);
+router.get("/invitations", protect, getPendingInvitationsController);
 
 router.post("/:workspaceId/invite", protect, inviteMemberController);
+
+router.post("/:workspaceId/accept", protect, acceptInvitationController);
+
+router.get("/:workspaceId", protect, getWorkspaceByIdController);
 
 export default router;

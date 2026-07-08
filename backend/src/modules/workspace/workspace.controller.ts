@@ -5,6 +5,8 @@ import {
   getMyWorkspaces,
   getWorkspaceById,
   inviteMember,
+  acceptInvitation,
+  getPendingInvitations,
 } from "./workspace.service.js";
 
 export const createWorkspaceController = asyncHandler(
@@ -42,5 +44,24 @@ export const inviteMemberController = asyncHandler(
     const result = await inviteMember(workspaceId, req.user!.id, req.body);
 
     res.status(201).json(result);
+  },
+);
+
+export const acceptInvitationController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const workspaceId = Array.isArray(req.params.workspaceId)
+      ? req.params.workspaceId[0]
+      : req.params.workspaceId;
+    const result = await acceptInvitation(workspaceId, req.user!.id);
+
+    res.status(200).json(result);
+  },
+);
+
+export const getPendingInvitationsController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const result = await getPendingInvitations(req.user!.id);
+
+    res.status(200).json(result);
   },
 );
