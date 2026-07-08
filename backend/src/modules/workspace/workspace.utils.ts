@@ -1,5 +1,8 @@
 import AppError from "../../utils/AppError.js";
-import WorkspaceMember, { MembershipStatus } from "./workspace-member.model.js";
+import WorkspaceMember, {
+  MembershipStatus,
+  WorkspaceRole,
+} from "./workspace-member.model.js";
 
 export const requireWorkspaceMembership = async (
   workspaceId: string,
@@ -13,6 +16,20 @@ export const requireWorkspaceMembership = async (
 
   if (!membership) {
     throw new AppError("Workspace not found", 404);
+  }
+
+  return membership;
+};
+
+export const requireWorkspaceRole = async (
+  workspaceId: string,
+  userId: string,
+  allowedRoles: WorkspaceRole[],
+) => {
+  const membership = await requireWorkspaceMembership(workspaceId, userId);
+
+  if (!allowedRoles.includes(membership.role)) {
+    throw new AppError("Forbidden", 403);
   }
 
   return membership;

@@ -1,7 +1,16 @@
 import AppError from "../../utils/AppError.js";
-import { requireWorkspaceMembership } from "../workspace/workspace.utils.js";
+import {
+  requireWorkspaceMembership,
+  requireWorkspaceRole,
+} from "../workspace/workspace.utils.js";
+
 import Document from "./document.model.js";
-import { createDocumentSchema } from "./document.validation.js";
+import {
+  createDocumentSchema,
+  updateDocumentSchema,
+} from "./document.validation.js";
+import { WorkspaceRole } from "../workspace/workspace-member.model.js";
+import mongoose from "mongoose";
 
 export const createDocument = async (
   workspaceId: string,
@@ -10,7 +19,10 @@ export const createDocument = async (
 ) => {
   const data = createDocumentSchema.parse(body);
 
-  await requireWorkspaceMembership(workspaceId, userId);
+  await requireWorkspaceRole(workspaceId, userId, [
+    WorkspaceRole.OWNER,
+    WorkspaceRole.EDITOR,
+  ]);
 
   const document = await Document.create({
     title: data.title,
@@ -69,6 +81,47 @@ export const getDocumentById = async (
 
   return {
     success: true,
+    data: document,
+  };
+};
+
+export const updateDocument = async (
+  workspaceId: string,
+  documentId: string,
+  userId: string,
+  body: unknown,
+) => {
+  const data = updateDocumentSchema.parse(body);
+
+  await requireWorkspaceRole(workspaceId, userId, [
+    WorkspaceRole.OWNER,
+    WorkspaceRole.EDITOR,
+  ]);
+
+  const document = await Document.findOne({
+    _id: documentId,
+    workspace: workspaceId,
+  });
+
+  if (!document) {
+    throw new AppError("Document not found", 404);
+  }
+
+  if (data.title !== undefined) {
+    document.title = data.title;
+  }
+
+  if (data.content !== undefined) {
+    document.content = data.content;
+  }
+
+  document.lastEditedBy = new mongoose.Types.ObjectId(userId);
+
+  await document.save();
+
+  return {
+    success: true,
+    message: "Document updated successfully",
     data: document,
   };
 };
