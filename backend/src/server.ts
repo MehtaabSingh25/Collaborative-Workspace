@@ -1,13 +1,15 @@
+import http from "http";
 import app from "./app.js";
+import { initializeSocket } from "./socket/index.js";
 import connectDB from "./config/db.js";
 import env from "./config/env.js";
 
-const startServer = async () => {
-  await connectDB();
+await connectDB();
 
-  app.listen(env.PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${env.PORT}`);
-  });
-};
+const server = http.createServer(app);
 
-startServer();
+initializeSocket(server);
+
+server.listen(env.PORT, () => {
+  console.log(`Server running on port ${env.PORT}`);
+});
