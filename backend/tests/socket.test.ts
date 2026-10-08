@@ -226,6 +226,80 @@ describe("document rooms and presence", () => {
     expect((await leftPresence).users).toHaveLength(1);
   });
 
+  it("persists editor updates, broadcasts them, and rejects viewers", async () => {
+    const { owner, invitee, workspaceId } = await setup();
+
+    const doc = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "Realtime Spec", content: "Initial" })
+      .expect(201);
+
+    const documentId = doc.body.data._id as string;
+    const ownerClient = await connectClient(owner);
+    const inviteeClient = await connectClient(invitee);
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/accept`)
+      .set(auth(invitee))
+      .expect(200);
+
+    await emitAck<{ ok: boolean }>(ownerClient, "document:join", {
+      workspaceId,
+      documentId,
+    });
+    await emitAck<{ ok: boolean }>(inviteeClient, "document:join", {
+      workspaceId,
+      documentId,
+    });
+
+    const updateEvent = new Promise<{
+      workspaceId: string;
+      documentId: string;
+      content: string;
+      lastEditedBy: string;
+      updatedAt: string;
+    }>((resolve) => inviteeClient.once("document:updated", resolve));
+
+    const updated = await emitAck<{
+      ok: boolean;
+      content?: string;
+      lastEditedBy?: string;
+      updatedAt?: string;
+      message?: string;
+    }>(ownerClient, "document:update", {
+      workspaceId,
+      documentId,
+      content: "Updated by owner",
+    });
+
+    expect(updated.ok).toBe(true);
+    expect(updated.content).toBe("Updated by owner");
+    expect(updated.lastEditedBy).toEqual(expect.any(String));
+    expect(updated.updatedAt).toEqual(expect.any(String));
+
+    const broadcast = await updateEvent;
+    expect(broadcast.workspaceId).toBe(workspaceId);
+    expect(broadcast.documentId).toBe(documentId);
+    expect(broadcast.content).toBe("Updated by owner");
+    expect(broadcast.lastEditedBy).toBe(updated.lastEditedBy);
+
+    const persisted = await request(app)
+      .get(`/api/workspaces/${workspaceId}/documents/${documentId}`)
+      .set(auth(invitee))
+      .expect(200);
+
+    expect(persisted.body.data.content).toBe("Updated by owner");
+
+    const denied = await emitAck<{ ok: boolean; message?: string }>(
+      inviteeClient,
+      "document:update",
+      { workspaceId, documentId, content: "Viewer edit" },
+    );
+
+    expect(denied).toEqual({ ok: false, message: "Forbidden" });
+  });
+
   it("rejects outsiders and cross-workspace document access", async () => {
     const { owner, outsider, workspaceId } = await setup();
 

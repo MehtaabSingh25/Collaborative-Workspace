@@ -12,6 +12,17 @@ export type DocumentAckResponse =
   | { ok: true; workspaceId: string; documentId: string }
   | { ok: false; message: string };
 
+export type DocumentUpdateAckResponse =
+  | {
+      ok: true;
+      workspaceId: string;
+      documentId: string;
+      content: string;
+      lastEditedBy: string;
+      updatedAt: string;
+    }
+  | { ok: false; message: string };
+
 export type DocumentPresenceUser = AuthenticatedSocketUser;
 
 export interface ClientToServerEvents {
@@ -31,6 +42,10 @@ export interface ClientToServerEvents {
     payload: unknown,
     ack?: (response: DocumentAckResponse) => void,
   ) => void;
+  "document:update": (
+    payload: unknown,
+    ack?: (response: DocumentUpdateAckResponse) => void,
+  ) => void;
 }
 
 export interface ServerToClientEvents {
@@ -38,6 +53,13 @@ export interface ServerToClientEvents {
     workspaceId: string;
     documentId: string;
     users: DocumentPresenceUser[];
+  }) => void;
+  "document:updated": (payload: {
+    workspaceId: string;
+    documentId: string;
+    content: string;
+    lastEditedBy: string;
+    updatedAt: string;
   }) => void;
 }
 

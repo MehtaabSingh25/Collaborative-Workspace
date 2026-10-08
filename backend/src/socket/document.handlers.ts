@@ -2,11 +2,13 @@ import type { Server, Socket } from "socket.io";
 import { z, ZodError } from "zod";
 import AppError from "../utils/AppError.js";
 import Document from "../modules/document/document.model.js";
+import { updateDocument } from "../modules/document/document.service.js";
 import { requireWorkspaceMembership } from "../modules/workspace/workspace.utils.js";
 import type {
   ClientToServerEvents,
   DocumentAckResponse,
   DocumentPresenceUser,
+  DocumentUpdateAckResponse,
   InterServerEvents,
   ServerToClientEvents,
   SocketData,
@@ -24,6 +26,10 @@ const documentPayloadSchema = z.object({
   documentId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid document id"),
 });
 
+const documentUpdatePayloadSchema = documentPayloadSchema.extend({
+  content: z.string(),
+});
+
 export const documentRoom = (workspaceId: string, documentId: string) =>
   `document:${workspaceId}:${documentId}`;
 
@@ -39,6 +45,10 @@ const toAckError = (error: unknown): DocumentAckResponse => {
 };
 
 const reply = (ack: unknown, response: DocumentAckResponse) => {
+  if (typeof ack === "function") ack(response);
+};
+
+const replyUpdate = (ack: unknown, response: DocumentUpdateAckResponse) => {
   if (typeof ack === "function") ack(response);
 };
 
@@ -100,12 +110,7 @@ export const registerDocumentHandlers = (socket: AppSocket) => {
     await Promise.all(
       documentRooms.map(async (room) => {
         const [, workspaceId, documentId] = room.split(":");
-        await broadcastPresence(
-          socket,
-          workspaceId,
-          documentId,
-          socket.id,
-        );
+        await broadcastPresence(socket, workspaceId, documentId, socket.id);
       }),
     );
   });
@@ -136,6 +141,61 @@ export const registerDocumentHandlers = (socket: AppSocket) => {
       reply(ack, { ok: true, workspaceId, documentId });
     } catch (error) {
       reply(ack, toAckError(error));
+    }
+  });
+  socket.on("document:update", async (payload, ack) => {
+    try {
+      const { workspaceId, documentId, content } =
+        documentUpdatePayloadSchema.parse(payload);
+      const room = documentRoom(workspaceId, documentId);
+
+      if (!socket.rooms.has(room)) {
+        throw new AppError("Join document first", 403);
+      }
+
+      const result = await updateDocument(
+        workspaceId,
+        documentId,
+        socket.data.user.id,
+        { content },
+      );
+      const document = result.data;
+      const lastEditedBy = document.lastEditedBy.toString();
+      const updatedAtValue = document.get("updatedAt");
+
+      if (!(updatedAtValue instanceof Date)) {
+        throw new AppError("Internal Server Error", 500);
+      }
+
+      const updatedAt = updatedAtValue.toISOString();
+
+      socket.to(room).emit("document:updated", {
+        workspaceId,
+        documentId,
+        content: document.content,
+        lastEditedBy,
+        updatedAt,
+      });
+
+      replyUpdate(ack, {
+        ok: true,
+        workspaceId,
+        documentId,
+        content: document.content,
+        lastEditedBy,
+        updatedAt,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        replyUpdate(ack, { ok: false, message: "Invalid payload" });
+        return;
+      }
+      if (error instanceof AppError) {
+        replyUpdate(ack, { ok: false, message: error.message });
+        return;
+      }
+      console.error(error);
+      replyUpdate(ack, { ok: false, message: "Internal Server Error" });
     }
   });
 };
