@@ -101,13 +101,17 @@ describe("workspace rooms", () => {
       workspaceId,
     });
     expect(joined.ok).toBe(true);
-    expect(await getIO().in(workspaceRoom(workspaceId)).fetchSockets()).toHaveLength(1);
+    expect(
+      await getIO().in(workspaceRoom(workspaceId)).fetchSockets(),
+    ).toHaveLength(1);
 
     const left = await emitAck<{ ok: boolean }>(client, "workspace:leave", {
       workspaceId,
     });
     expect(left.ok).toBe(true);
-    expect(await getIO().in(workspaceRoom(workspaceId)).fetchSockets()).toHaveLength(0);
+    expect(
+      await getIO().in(workspaceRoom(workspaceId)).fetchSockets(),
+    ).toHaveLength(0);
   });
 
   it("rejects PENDING invitees, then allows them after accepting", async () => {
@@ -118,7 +122,9 @@ describe("workspace rooms", () => {
       workspaceId,
     });
     expect(denied.ok).toBe(false);
-    expect(await getIO().in(workspaceRoom(workspaceId)).fetchSockets()).toHaveLength(0);
+    expect(
+      await getIO().in(workspaceRoom(workspaceId)).fetchSockets(),
+    ).toHaveLength(0);
 
     await request(app)
       .post(`/api/workspaces/${workspaceId}/accept`)
@@ -146,6 +152,130 @@ describe("workspace rooms", () => {
       { workspaceId: "nope" },
     );
     expect(invalid).toEqual({ ok: false, message: "Invalid payload" });
-    expect(await getIO().in(workspaceRoom(workspaceId)).fetchSockets()).toHaveLength(0);
+    expect(
+      await getIO().in(workspaceRoom(workspaceId)).fetchSockets(),
+    ).toHaveLength(0);
+  });
+});
+
+describe("document rooms and presence", () => {
+  it("lets an ACTIVE member join a document and broadcasts presence", async () => {
+    const { owner, invitee, workspaceId } = await setup();
+
+    const doc = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "Shared Spec" })
+      .expect(201);
+
+    const documentId = doc.body.data._id as string;
+    const ownerClient = await connectClient(owner);
+    const inviteeClient = await connectClient(invitee);
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/accept`)
+      .set(auth(invitee))
+      .expect(200);
+
+    const ownerPresence = new Promise<{
+      workspaceId: string;
+      documentId: string;
+      users: { id: string }[];
+    }>((resolve) => ownerClient.once("document:presence", resolve));
+
+    const joined = await emitAck<{ ok: boolean }>(
+      ownerClient,
+      "document:join",
+      { workspaceId, documentId },
+    );
+
+    expect(joined.ok).toBe(true);
+
+    const firstPresence = await ownerPresence;
+    expect(firstPresence.workspaceId).toBe(workspaceId);
+    expect(firstPresence.documentId).toBe(documentId);
+    expect(firstPresence.users.map((user) => user.id)).toEqual([
+      expect.any(String),
+    ]);
+
+    const inviteePresence = new Promise<{
+      users: { id: string }[];
+    }>((resolve) => inviteeClient.once("document:presence", resolve));
+
+    const inviteeJoined = await emitAck<{ ok: boolean }>(
+      inviteeClient,
+      "document:join",
+      { workspaceId, documentId },
+    );
+
+    expect(inviteeJoined.ok).toBe(true);
+
+    const presence = await inviteePresence;
+    expect(presence.users).toHaveLength(2);
+
+    const leftPresence = new Promise<{
+      users: { id: string }[];
+    }>((resolve) => inviteeClient.once("document:presence", resolve));
+
+    const left = await emitAck<{ ok: boolean }>(ownerClient, "document:leave", {
+      workspaceId,
+      documentId,
+    });
+
+    expect(left.ok).toBe(true);
+    expect((await leftPresence).users).toHaveLength(1);
+  });
+
+  it("rejects outsiders and cross-workspace document access", async () => {
+    const { owner, outsider, workspaceId } = await setup();
+
+    const doc = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "Private Spec" })
+      .expect(201);
+
+    const documentId = doc.body.data._id as string;
+
+    const otherWorkspace = await request(app)
+      .post("/api/workspaces")
+      .set(auth(owner))
+      .send({ name: "Other Space" })
+      .expect(201);
+    const otherWorkspaceId = otherWorkspace.body.data._id as string;
+
+    const ownerClient = await connectClient(owner);
+
+    const crossWorkspace = await emitAck<{ ok: boolean; message: string }>(
+      ownerClient,
+      "document:join",
+      { workspaceId: otherWorkspaceId, documentId },
+    );
+
+    expect(crossWorkspace).toEqual({
+      ok: false,
+      message: "Document not found",
+    });
+
+    const outsiderClient = await connectClient(outsider);
+
+    const denied = await emitAck<{ ok: boolean; message: string }>(
+      outsiderClient,
+      "document:join",
+      { workspaceId, documentId },
+    );
+
+    expect(denied).toEqual({ ok: false, message: "Workspace not found" });
+    expect(
+      await getIO().in(`document:${workspaceId}:${documentId}`).fetchSockets(),
+    ).toHaveLength(0);
+
+    const invalid = await emitAck<{ ok: boolean; message: string }>(
+      outsiderClient,
+      "document:join",
+      { workspaceId, documentId: "nope" },
+    );
+
+    expect(invalid).toEqual({ ok: false, message: "Invalid payload" });
   });
 });

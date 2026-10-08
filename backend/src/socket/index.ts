@@ -5,6 +5,7 @@ import {
   registerWorkspaceHandlers,
   type AppServer,
 } from "./workspace.handlers.js";
+import { registerDocumentHandlers } from "./document.handlers.js";
 import type {
   ClientToServerEvents,
   InterServerEvents,
@@ -33,6 +34,7 @@ export const initializeSocket = (httpServer: HttpServer) => {
     console.log(`Socket Connected: ${socket.id} (user ${socket.data.user.id})`);
 
     registerWorkspaceHandlers(socket);
+    registerDocumentHandlers(socket);
 
     socket.on("disconnect", () => {
       console.log(`Socket Disconnected: ${socket.id}`);

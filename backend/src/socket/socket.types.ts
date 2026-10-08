@@ -8,6 +8,12 @@ export type AckResponse =
   | { ok: true; workspaceId: string }
   | { ok: false; message: string };
 
+export type DocumentAckResponse =
+  | { ok: true; workspaceId: string; documentId: string }
+  | { ok: false; message: string };
+
+export type DocumentPresenceUser = AuthenticatedSocketUser;
+
 export interface ClientToServerEvents {
   "workspace:join": (
     payload: unknown,
@@ -17,10 +23,23 @@ export interface ClientToServerEvents {
     payload: unknown,
     ack?: (response: AckResponse) => void,
   ) => void;
+  "document:join": (
+    payload: unknown,
+    ack?: (response: DocumentAckResponse) => void,
+  ) => void;
+  "document:leave": (
+    payload: unknown,
+    ack?: (response: DocumentAckResponse) => void,
+  ) => void;
 }
 
-// Server -> client events are added in later phases.
-export interface ServerToClientEvents {}
+export interface ServerToClientEvents {
+  "document:presence": (payload: {
+    workspaceId: string;
+    documentId: string;
+    users: DocumentPresenceUser[];
+  }) => void;
+}
 
 export interface InterServerEvents {}
 
