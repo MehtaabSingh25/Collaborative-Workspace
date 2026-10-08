@@ -98,6 +98,49 @@ export const updateDocument = async (
     WorkspaceRole.EDITOR,
   ]);
 
+  if (data.expectedVersion !== undefined) {
+    const $set: Record<string, unknown> = {
+      lastEditedBy: new mongoose.Types.ObjectId(userId),
+    };
+
+    if (data.title !== undefined) {
+      $set.title = data.title;
+    }
+
+    if (data.content !== undefined) {
+      $set.content = data.content;
+    }
+
+    const document = await Document.findOneAndUpdate(
+      {
+        _id: documentId,
+        workspace: workspaceId,
+        version: data.expectedVersion,
+      },
+      { $set, $inc: { version: 1 } },
+      { new: true, runValidators: true },
+    );
+
+    if (!document) {
+      const existing = await Document.findOne({
+        _id: documentId,
+        workspace: workspaceId,
+      }).select("version");
+
+      if (!existing) {
+        throw new AppError("Document not found", 404);
+      }
+
+      throw new AppError("Document version conflict", 409);
+    }
+
+    return {
+      success: true,
+      message: "Document updated successfully",
+      data: document,
+    };
+  }
+
   const document = await Document.findOne({
     _id: documentId,
     workspace: workspaceId,
@@ -116,6 +159,7 @@ export const updateDocument = async (
   }
 
   document.lastEditedBy = new mongoose.Types.ObjectId(userId);
+  document.version += 1;
 
   await document.save();
 
@@ -125,3 +169,4 @@ export const updateDocument = async (
     data: document,
   };
 };
+

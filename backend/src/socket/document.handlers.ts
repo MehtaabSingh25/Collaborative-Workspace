@@ -28,6 +28,7 @@ const documentPayloadSchema = z.object({
 
 const documentUpdatePayloadSchema = documentPayloadSchema.extend({
   content: z.string(),
+  version: z.number().int().nonnegative(),
 });
 
 export const documentRoom = (workspaceId: string, documentId: string) =>
@@ -145,7 +146,7 @@ export const registerDocumentHandlers = (socket: AppSocket) => {
   });
   socket.on("document:update", async (payload, ack) => {
     try {
-      const { workspaceId, documentId, content } =
+      const { workspaceId, documentId, content, version } =
         documentUpdatePayloadSchema.parse(payload);
       const room = documentRoom(workspaceId, documentId);
 
@@ -157,7 +158,7 @@ export const registerDocumentHandlers = (socket: AppSocket) => {
         workspaceId,
         documentId,
         socket.data.user.id,
-        { content },
+        { content, expectedVersion: version },
       );
       const document = result.data;
       const lastEditedBy = document.lastEditedBy.toString();
@@ -168,6 +169,7 @@ export const registerDocumentHandlers = (socket: AppSocket) => {
       }
 
       const updatedAt = updatedAtValue.toISOString();
+      const newVersion = document.version;
 
       socket.to(room).emit("document:updated", {
         workspaceId,
@@ -175,6 +177,7 @@ export const registerDocumentHandlers = (socket: AppSocket) => {
         content: document.content,
         lastEditedBy,
         updatedAt,
+        version: newVersion,
       });
 
       replyUpdate(ack, {
@@ -184,6 +187,7 @@ export const registerDocumentHandlers = (socket: AppSocket) => {
         content: document.content,
         lastEditedBy,
         updatedAt,
+        version: newVersion,
       });
     } catch (error) {
       if (error instanceof ZodError) {

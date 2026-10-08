@@ -169,6 +169,7 @@ describe("document rooms and presence", () => {
       .expect(201);
 
     const documentId = doc.body.data._id as string;
+    expect(doc.body.data.version).toBe(0);
     const ownerClient = await connectClient(owner);
     const inviteeClient = await connectClient(invitee);
 
@@ -235,6 +236,8 @@ describe("document rooms and presence", () => {
       .send({ title: "Realtime Spec", content: "Initial" })
       .expect(201);
 
+    expect(doc.body.data.version).toBe(0);
+
     const documentId = doc.body.data._id as string;
     const ownerClient = await connectClient(owner);
     const inviteeClient = await connectClient(invitee);
@@ -259,6 +262,7 @@ describe("document rooms and presence", () => {
       content: string;
       lastEditedBy: string;
       updatedAt: string;
+      version: number;
     }>((resolve) => inviteeClient.once("document:updated", resolve));
 
     const updated = await emitAck<{
@@ -271,18 +275,21 @@ describe("document rooms and presence", () => {
       workspaceId,
       documentId,
       content: "Updated by owner",
+      version: 0,
     });
 
     expect(updated.ok).toBe(true);
     expect(updated.content).toBe("Updated by owner");
     expect(updated.lastEditedBy).toEqual(expect.any(String));
     expect(updated.updatedAt).toEqual(expect.any(String));
+    expect(updated.version).toBe(1);
 
     const broadcast = await updateEvent;
     expect(broadcast.workspaceId).toBe(workspaceId);
     expect(broadcast.documentId).toBe(documentId);
     expect(broadcast.content).toBe("Updated by owner");
     expect(broadcast.lastEditedBy).toBe(updated.lastEditedBy);
+    expect(broadcast.version).toBe(1);
 
     const persisted = await request(app)
       .get(`/api/workspaces/${workspaceId}/documents/${documentId}`)
@@ -290,11 +297,23 @@ describe("document rooms and presence", () => {
       .expect(200);
 
     expect(persisted.body.data.content).toBe("Updated by owner");
+    expect(persisted.body.data.version).toBe(1);
+
+    const stale = await emitAck<{ ok: boolean; message?: string }>(
+      ownerClient,
+      "document:update",
+      { workspaceId, documentId, content: "Stale owner edit", version: 0 },
+    );
+
+    expect(stale).toEqual({
+      ok: false,
+      message: "Document version conflict",
+    });
 
     const denied = await emitAck<{ ok: boolean; message?: string }>(
       inviteeClient,
       "document:update",
-      { workspaceId, documentId, content: "Viewer edit" },
+      { workspaceId, documentId, content: "Viewer edit", version: 1 },
     );
 
     expect(denied).toEqual({ ok: false, message: "Forbidden" });

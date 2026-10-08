@@ -20,6 +20,7 @@ export type DocumentUpdateAckResponse =
       content: string;
       lastEditedBy: string;
       updatedAt: string;
+      version: number;
     }
   | { ok: false; message: string };
 
@@ -60,6 +61,7 @@ export interface ServerToClientEvents {
     content: string;
     lastEditedBy: string;
     updatedAt: string;
+    version: number;
   }) => void;
 }
 

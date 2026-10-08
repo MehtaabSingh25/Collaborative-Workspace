@@ -6,6 +6,7 @@ export interface IDocument {
   workspace: Types.ObjectId;
   createdBy: Types.ObjectId;
   lastEditedBy: Types.ObjectId;
+  version: number;
 }
 
 const documentSchema = new Schema<IDocument>(
@@ -39,6 +40,13 @@ const documentSchema = new Schema<IDocument>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+
+    version: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
     },
   },
   {
