@@ -32,7 +32,6 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api", routes);
-app.use(errorMiddleware);
 app.get("/api/me", protect, (req, res) => {
   res.json({
     success: true,
@@ -41,5 +40,8 @@ app.get("/api/me", protect, (req, res) => {
 });
 
 app.use("/api/workspaces", workspaceRoutes);
+
+// Must be registered after ALL routes so every error reaches it.
+app.use(errorMiddleware);
 
 export default app;
