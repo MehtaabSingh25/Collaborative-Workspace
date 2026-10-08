@@ -13,3 +13,9 @@ export const updateDocumentSchema = z.object({
 
   expectedVersion: z.number().int().nonnegative().optional(),
 });
+
+
+export const restoreDocumentSchema = z.object({
+  version: z.number().int().positive(),
+  expectedVersion: z.number().int().nonnegative(),
+});

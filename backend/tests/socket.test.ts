@@ -270,6 +270,7 @@ describe("document rooms and presence", () => {
       content?: string;
       lastEditedBy?: string;
       updatedAt?: string;
+      version?: number;
       message?: string;
     }>(ownerClient, "document:update", {
       workspaceId,
@@ -370,5 +371,78 @@ describe("document rooms and presence", () => {
     );
 
     expect(invalid).toEqual({ ok: false, message: "Invalid payload" });
+  });
+
+  it("restores a document version and broadcasts the new version", async () => {
+    const { owner, invitee, workspaceId } = await setup();
+
+    const doc = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "Restore Spec", content: "v0" })
+      .expect(201);
+
+    const documentId = doc.body.data._id as string;
+    const ownerClient = await connectClient(owner);
+    const inviteeClient = await connectClient(invitee);
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/accept`)
+      .set(auth(invitee))
+      .expect(200);
+
+    await emitAck<{ ok: boolean }>(ownerClient, "document:join", {
+      workspaceId,
+      documentId,
+    });
+    await emitAck<{ ok: boolean }>(inviteeClient, "document:join", {
+      workspaceId,
+      documentId,
+    });
+
+    await emitAck(ownerClient, "document:update", {
+      workspaceId,
+      documentId,
+      content: "v1",
+      version: 0,
+    });
+    await emitAck(ownerClient, "document:update", {
+      workspaceId,
+      documentId,
+      content: "v2",
+      version: 1,
+    });
+
+    const updateEvent = new Promise<{
+      content: string;
+      version: number;
+    }>((resolve) => inviteeClient.once("document:updated", resolve));
+
+    const restored = await emitAck<{
+      ok: boolean;
+      content?: string;
+      version?: number;
+    }>(ownerClient, "document:restore", {
+      workspaceId,
+      documentId,
+      version: 1,
+      expectedVersion: 2,
+    });
+
+    expect(restored.ok).toBe(true);
+    expect(restored.content).toBe("v1");
+    expect(restored.version).toBe(3);
+
+    const broadcast = await updateEvent;
+    expect(broadcast.content).toBe("v1");
+    expect(broadcast.version).toBe(3);
+
+    const persisted = await request(app)
+      .get(`/api/workspaces/${workspaceId}/documents/${documentId}`)
+      .set(auth(owner))
+      .expect(200);
+
+    expect(persisted.body.data.content).toBe("v1");
+    expect(persisted.body.data.version).toBe(3);
   });
 });

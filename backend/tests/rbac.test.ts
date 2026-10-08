@@ -46,7 +46,10 @@ describe("auth", () => {
 
   it("never exposes the password hash", async () => {
     const token = await register("Some User", "u@test.com");
-    const res = await request(app).get("/api/auth/me").set(auth(token)).expect(200);
+    const res = await request(app)
+      .get("/api/auth/me")
+      .set(auth(token))
+      .expect(200);
     expect(JSON.stringify(res.body)).not.toContain("password");
   });
 });
@@ -74,7 +77,10 @@ describe("workspace membership", () => {
       .set(auth(invitee))
       .expect(404);
 
-    const list = await request(app).get("/api/workspaces").set(auth(invitee)).expect(200);
+    const list = await request(app)
+      .get("/api/workspaces")
+      .set(auth(invitee))
+      .expect(200);
     expect(list.body.data).toHaveLength(0);
 
     await request(app)
@@ -94,7 +100,9 @@ describe("workspace membership", () => {
       .post(`/api/workspaces/${workspaceId}/invite`)
       .set(auth(owner))
       .send({ email: "invitee@test.com", role: "EDITOR" });
-    await request(app).post(`/api/workspaces/${workspaceId}/accept`).set(auth(invitee));
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/accept`)
+      .set(auth(invitee));
 
     await request(app)
       .post(`/api/workspaces/${workspaceId}/invite`)
@@ -111,7 +119,9 @@ describe("document RBAC", () => {
       .post(`/api/workspaces/${workspaceId}/invite`)
       .set(auth(owner))
       .send({ email: "invitee@test.com", role: "VIEWER" });
-    await request(app).post(`/api/workspaces/${workspaceId}/accept`).set(auth(invitee));
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/accept`)
+      .set(auth(invitee));
 
     const doc = await request(app)
       .post(`/api/workspaces/${workspaceId}/documents`)
@@ -150,5 +160,130 @@ describe("document RBAC", () => {
       .get(`/api/workspaces/${workspaceId}/documents/${doc.body.data._id}`)
       .set(auth(outsider))
       .expect(404);
+  });
+});
+
+describe("document version history", () => {
+  it("records revisions and restores an earlier version", async () => {
+    const { owner, invitee, workspaceId } = await setup();
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/invite`)
+      .set(auth(owner))
+      .send({ email: "invitee@test.com", role: "VIEWER" })
+      .expect(201);
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/accept`)
+      .set(auth(invitee))
+      .expect(200);
+
+    const doc = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "History Spec", content: "v0" })
+      .expect(201);
+
+    const docId = doc.body.data._id as string;
+
+    await request(app)
+      .patch(`/api/workspaces/${workspaceId}/documents/${docId}`)
+      .set(auth(owner))
+      .send({ content: "v1", expectedVersion: 0 })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/workspaces/${workspaceId}/documents/${docId}`)
+      .set(auth(owner))
+      .send({ content: "v2", expectedVersion: 1 })
+      .expect(200);
+
+    const history = await request(app)
+      .get(`/api/workspaces/${workspaceId}/documents/${docId}/history`)
+      .set(auth(owner))
+      .expect(200);
+
+    expect(
+      history.body.data.map(
+        (revision: { version: number }) => revision.version,
+      ),
+    ).toEqual([2, 1]);
+
+    expect(history.body.data[0].content).toBe("v2");
+
+    const restored = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents/${docId}/restore`)
+      .set(auth(owner))
+      .send({ version: 1, expectedVersion: 2 })
+      .expect(200);
+
+    expect(restored.body.data.content).toBe("v1");
+    expect(restored.body.data.version).toBe(3);
+
+    const persisted = await request(app)
+      .get(`/api/workspaces/${workspaceId}/documents/${docId}`)
+      .set(auth(invitee))
+      .expect(200);
+
+    expect(persisted.body.data.content).toBe("v1");
+    expect(persisted.body.data.version).toBe(3);
+
+    const afterRestoreHistory = await request(app)
+      .get(`/api/workspaces/${workspaceId}/documents/${docId}/history`)
+      .set(auth(owner))
+      .expect(200);
+
+    expect(
+      afterRestoreHistory.body.data.map(
+        (revision: { version: number }) => revision.version,
+      ),
+    ).toEqual([3, 2, 1]);
+  });
+
+  it("rejects stale restores and viewer restores", async () => {
+    const { owner, invitee, workspaceId } = await setup();
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/invite`)
+      .set(auth(owner))
+      .send({ email: "invitee@test.com", role: "VIEWER" })
+      .expect(201);
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/accept`)
+      .set(auth(invitee))
+      .expect(200);
+
+    const doc = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "Restore Spec", content: "v0" })
+      .expect(201);
+
+    const docId = doc.body.data._id as string;
+
+    await request(app)
+      .patch(`/api/workspaces/${workspaceId}/documents/${docId}`)
+      .set(auth(owner))
+      .send({ content: "v1", expectedVersion: 0 })
+      .expect(200);
+
+    const viewerHistory = await request(app)
+      .get(`/api/workspaces/${workspaceId}/documents/${docId}/history`)
+      .set(auth(invitee))
+      .expect(200);
+
+    expect(viewerHistory.body.data).toHaveLength(1);
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents/${docId}/restore`)
+      .set(auth(owner))
+      .send({ version: 1, expectedVersion: 0 })
+      .expect(409);
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents/${docId}/restore`)
+      .set(auth(invitee))
+      .send({ version: 1, expectedVersion: 1 })
+      .expect(403);
   });
 });

@@ -5,9 +5,11 @@ import {
 } from "../workspace/workspace.utils.js";
 
 import Document from "./document.model.js";
+import DocumentRevision from "./document-revision.model.js";
 import {
   createDocumentSchema,
   updateDocumentSchema,
+  restoreDocumentSchema,
 } from "./document.validation.js";
 import { WorkspaceRole } from "../workspace/workspace-member.model.js";
 import mongoose from "mongoose";
@@ -85,6 +87,24 @@ export const getDocumentById = async (
   };
 };
 
+const createDocumentRevision = async (document: {
+  _id: mongoose.Types.ObjectId;
+  workspace: mongoose.Types.ObjectId;
+  version: number;
+  title: string;
+  content: string;
+  lastEditedBy: mongoose.Types.ObjectId;
+}) => {
+  await DocumentRevision.create({
+    document: document._id,
+    workspace: document.workspace,
+    version: document.version,
+    title: document.title,
+    content: document.content,
+    editedBy: document.lastEditedBy,
+  });
+};
+
 export const updateDocument = async (
   workspaceId: string,
   documentId: string,
@@ -134,6 +154,8 @@ export const updateDocument = async (
       throw new AppError("Document version conflict", 409);
     }
 
+    await createDocumentRevision(document);
+
     return {
       success: true,
       message: "Document updated successfully",
@@ -162,10 +184,103 @@ export const updateDocument = async (
   document.version += 1;
 
   await document.save();
+  await createDocumentRevision(document);
 
   return {
     success: true,
     message: "Document updated successfully",
+    data: document,
+  };
+};
+
+export const getDocumentHistory = async (
+  workspaceId: string,
+  documentId: string,
+  userId: string,
+) => {
+  await requireWorkspaceMembership(workspaceId, userId);
+
+  const document = await Document.findOne({
+    _id: documentId,
+    workspace: workspaceId,
+  }).select("_id");
+
+  if (!document) {
+    throw new AppError("Document not found", 404);
+  }
+
+  const revisions = await DocumentRevision.find({
+    document: documentId,
+    workspace: workspaceId,
+  })
+    .populate("editedBy", "name email")
+    .sort({ version: -1 });
+
+  return {
+    success: true,
+    data: revisions,
+  };
+};
+
+export const restoreDocument = async (
+  workspaceId: string,
+  documentId: string,
+  userId: string,
+  body: unknown,
+) => {
+  const data = restoreDocumentSchema.parse(body);
+
+  await requireWorkspaceRole(workspaceId, userId, [
+    WorkspaceRole.OWNER,
+    WorkspaceRole.EDITOR,
+  ]);
+
+  const revision = await DocumentRevision.findOne({
+    _id: { $exists: true },
+    document: documentId,
+    workspace: workspaceId,
+    version: data.version,
+  });
+
+  if (!revision) {
+    throw new AppError("Document revision not found", 404);
+  }
+
+  const document = await Document.findOneAndUpdate(
+    {
+      _id: documentId,
+      workspace: workspaceId,
+      version: data.expectedVersion,
+    },
+    {
+      $set: {
+        title: revision.title,
+        content: revision.content,
+        lastEditedBy: new mongoose.Types.ObjectId(userId),
+      },
+      $inc: { version: 1 },
+    },
+    { returnDocument: "after", runValidators: true },
+  );
+
+  if (!document) {
+    const existing = await Document.findOne({
+      _id: documentId,
+      workspace: workspaceId,
+    }).select("version");
+
+    if (!existing) {
+      throw new AppError("Document not found", 404);
+    }
+
+    throw new AppError("Document version conflict", 409);
+  }
+
+  await createDocumentRevision(document);
+
+  return {
+    success: true,
+    message: "Document restored successfully",
     data: document,
   };
 };

@@ -5,6 +5,8 @@ import {
   getDocumentByIdController,
   getWorkspaceDocumentsController,
   updateDocumentController,
+  getDocumentHistoryController,
+  restoreDocumentController,
 } from "./document.controller.js";
 
 const router = Router({ mergeParams: true });
@@ -16,5 +18,9 @@ router.get("/", protect, getWorkspaceDocumentsController);
 router.get("/:documentId", protect, getDocumentByIdController);
 
 router.patch("/:documentId", protect, updateDocumentController);
+
+router.get("/:documentId/history", protect, getDocumentHistoryController);
+
+router.post("/:documentId/restore", protect, restoreDocumentController);
 
 export default router;

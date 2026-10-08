@@ -2,7 +2,10 @@ import type { Server, Socket } from "socket.io";
 import { z, ZodError } from "zod";
 import AppError from "../utils/AppError.js";
 import Document from "../modules/document/document.model.js";
-import { updateDocument } from "../modules/document/document.service.js";
+import {
+  restoreDocument,
+  updateDocument,
+} from "../modules/document/document.service.js";
 import { requireWorkspaceMembership } from "../modules/workspace/workspace.utils.js";
 import type {
   ClientToServerEvents,
@@ -29,6 +32,11 @@ const documentPayloadSchema = z.object({
 const documentUpdatePayloadSchema = documentPayloadSchema.extend({
   content: z.string(),
   version: z.number().int().nonnegative(),
+});
+
+const documentRestorePayloadSchema = documentPayloadSchema.extend({
+  version: z.number().int().positive(),
+  expectedVersion: z.number().int().nonnegative(),
 });
 
 export const documentRoom = (workspaceId: string, documentId: string) =>
@@ -202,4 +210,64 @@ export const registerDocumentHandlers = (socket: AppSocket) => {
       replyUpdate(ack, { ok: false, message: "Internal Server Error" });
     }
   });
+
+  socket.on("document:restore", async (payload, ack) => {
+    try {
+      const { workspaceId, documentId, version, expectedVersion } =
+        documentRestorePayloadSchema.parse(payload);
+      const room = documentRoom(workspaceId, documentId);
+
+      if (!socket.rooms.has(room)) {
+        throw new AppError("Join document first", 403);
+      }
+
+      const result = await restoreDocument(
+        workspaceId,
+        documentId,
+        socket.data.user.id,
+        { version, expectedVersion },
+      );
+      const document = result.data;
+      const lastEditedBy = document.lastEditedBy.toString();
+      const updatedAtValue = document.get("updatedAt");
+
+      if (!(updatedAtValue instanceof Date)) {
+        throw new AppError("Internal Server Error", 500);
+      }
+
+      const updatedAt = updatedAtValue.toISOString();
+      const newVersion = document.version;
+
+      socket.to(room).emit("document:updated", {
+        workspaceId,
+        documentId,
+        content: document.content,
+        lastEditedBy,
+        updatedAt,
+        version: newVersion,
+      });
+
+      replyUpdate(ack, {
+        ok: true,
+        workspaceId,
+        documentId,
+        content: document.content,
+        lastEditedBy,
+        updatedAt,
+        version: newVersion,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        replyUpdate(ack, { ok: false, message: "Invalid payload" });
+        return;
+      }
+      if (error instanceof AppError) {
+        replyUpdate(ack, { ok: false, message: error.message });
+        return;
+      }
+      console.error(error);
+      replyUpdate(ack, { ok: false, message: "Internal Server Error" });
+    }
+  });
+
 };

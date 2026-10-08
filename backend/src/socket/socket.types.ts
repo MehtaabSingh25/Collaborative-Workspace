@@ -43,6 +43,10 @@ export interface ClientToServerEvents {
     payload: unknown,
     ack?: (response: DocumentAckResponse) => void,
   ) => void;
+  "document:restore": (
+    payload: unknown,
+    ack?: (response: DocumentUpdateAckResponse) => void,
+  ) => void;
   "document:update": (
     payload: unknown,
     ack?: (response: DocumentUpdateAckResponse) => void,
