@@ -37,6 +37,7 @@ export const createWorkspace = async (body: unknown, userId: string) => {
 export const getMyWorkspaces = async (userId: string) => {
   const memberships = await WorkspaceMember.find({
     user: userId,
+    status: MembershipStatus.ACTIVE,
   })
     .populate({
       path: "workspace",
@@ -64,6 +65,7 @@ export const getWorkspaceById = async (workspaceId: string, userId: string) => {
   const membership = await WorkspaceMember.findOne({
     workspace: workspaceId,
     user: userId,
+    status: MembershipStatus.ACTIVE,
   }).populate({
     path: "workspace",
     populate: {
