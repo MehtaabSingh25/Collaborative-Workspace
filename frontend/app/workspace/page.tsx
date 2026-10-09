@@ -9,6 +9,7 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").rep
 type User = { id: string; name: string; email: string };
 type Workspace = { _id: string; name: string; description?: string; updatedAt?: string };
 type WorkspaceMembership = { role: "OWNER" | "EDITOR" | "VIEWER"; workspace: Workspace };
+type Invitation = { _id: string; role: "EDITOR" | "VIEWER"; workspace: Workspace; invitedBy?: { name?: string; email?: string } };
 type WorkspaceDocument = { _id: string; title: string; version: number; updatedAt?: string; lastEditedBy?: { name?: string } };
 type DocumentDetail = WorkspaceDocument & { content: string };
 type ApiResult<T> = { success: boolean; data: T; message?: string };
@@ -47,6 +48,10 @@ export default function WorkspacePage() {
   const [draftContent, setDraftContent] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceDescription, setWorkspaceDescription] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"EDITOR" | "VIEWER">("EDITOR");
+  const [pendingInvitations, setPendingInvitations] = useState<Invitation[]>([]);
+  const [showInviteForm, setShowInviteForm] = useState(false);
   const [documentTitle, setDocumentTitle] = useState("");
   const [showWorkspaceForm, setShowWorkspaceForm] = useState(false);
   const [showDocumentForm, setShowDocumentForm] = useState(false);
@@ -65,12 +70,17 @@ export default function WorkspacePage() {
     setActiveWorkspaceId((current) => list.some((item) => item.workspace._id === current) ? current : list[0]?.workspace._id || "");
   }, []);
 
+  const loadInvitations = useCallback(async (accessToken: string) => {
+    const result = await request<Invitation[]>("/api/workspaces/invitations", accessToken);
+    setPendingInvitations(Array.isArray(result.data) ? result.data : []);
+  }, []);
+
   const establishSession = useCallback(async (accessToken: string) => {
     const result = await request<User>("/api/auth/me", accessToken);
     setToken(accessToken);
     setUser(result.data);
-    await loadWorkspaces(accessToken);
-  }, [loadWorkspaces]);
+    await Promise.all([loadWorkspaces(accessToken), loadInvitations(accessToken)]);
+  }, [loadInvitations, loadWorkspaces]);
 
   useEffect(() => {
     let mounted = true;
@@ -87,6 +97,9 @@ export default function WorkspacePage() {
         const list = Array.isArray(workspaceResult.data) ? workspaceResult.data : [];
         setWorkspaces(list);
         setActiveWorkspaceId(list[0]?.workspace._id || "");
+        const invitationResult = await request<Invitation[]>("/api/workspaces/invitations", refreshed.data.accessToken);
+        if (!mounted) return;
+        setPendingInvitations(Array.isArray(invitationResult.data) ? invitationResult.data : []);
       } catch {
         // A missing refresh cookie simply means the user needs to sign in.
       } finally {
@@ -139,6 +152,34 @@ export default function WorkspacePage() {
     finally { setBusy(false); }
   }
 
+  async function inviteMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token || !activeWorkspaceId || activeMembership?.role !== "OWNER") return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await request<unknown>(`/api/workspaces/${activeWorkspaceId}/invite`, token, {
+        method: "POST", body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+      });
+      setInviteEmail(""); setShowInviteForm(false);
+      setNotice("Invitation sent. The user can accept it from their workspace dashboard.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not send invitation.");
+    } finally { setBusy(false); }
+  }
+
+  async function acceptInvitation(invitation: Invitation) {
+    if (!token) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await request<unknown>(`/api/workspaces/${invitation.workspace._id}/accept`, token, { method: "POST" });
+      await Promise.all([loadWorkspaces(token), loadInvitations(token)]);
+      setActiveWorkspaceId(invitation.workspace._id);
+      setNotice(`You joined ${invitation.workspace.name}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not accept invitation.");
+    } finally { setBusy(false); }
+  }
+
   async function createDocument(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!token || !activeWorkspaceId) return;
     setBusy(true); setError("");
@@ -178,7 +219,7 @@ export default function WorkspacePage() {
 
   async function logout() {
     try { await request<unknown>("/api/auth/logout", token, { method: "POST" }); } catch { /* Clear local session even if the API is unavailable. */ }
-    setToken(null); setUser(null); setWorkspaces([]); setActiveWorkspaceId(""); setDocuments([]); setActiveDocument(null); setNotice("You have been signed out.");
+    setToken(null); setUser(null); setWorkspaces([]); setPendingInvitations([]); setActiveWorkspaceId(""); setDocuments([]); setActiveDocument(null); setNotice("You have been signed out.");
   }
 
   if (loading) return <main className="app-loading"><div className="loading-mark">C</div><p>Preparing your workspace…</p></main>;
@@ -223,6 +264,8 @@ export default function WorkspacePage() {
           {error && <div className="app-alert app-alert-error app-alert-banner" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error">×</button></div>}
           {notice && <div className="app-alert app-alert-success app-alert-banner" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss notice">×</button></div>}
 
+          {pendingInvitations.length > 0 && <section className="invitation-panel" aria-labelledby="invitation-heading"><div className="panel-heading"><div><h2 id="invitation-heading">Workspace invitations</h2><p>You have been invited to collaborate.</p></div><span className="count-pill">{pendingInvitations.length}</span></div><div className="invitation-list">{pendingInvitations.map((invitation) => <div className="invitation-row" key={invitation._id}><div className="invitation-copy"><strong>{invitation.workspace?.name || "Workspace"}</strong><span>{invitation.role.toLowerCase()} access{invitation.invitedBy?.name ? ` · invited by ${invitation.invitedBy.name}` : ""}</span></div><button className="app-button app-button-primary" disabled={busy} onClick={() => void acceptInvitation(invitation)}>Accept invitation</button></div>)}</div></section>}
+
           {showWorkspaceForm && <form className="inline-create-card" onSubmit={createWorkspace}><div><strong>Create a workspace</strong><p>A shared home for a project or team.</p></div><label>Workspace name<input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} minLength={3} maxLength={100} required placeholder="e.g. Product team" /></label><label>Description <span>(optional)</span><input value={workspaceDescription} onChange={(event) => setWorkspaceDescription(event.target.value)} maxLength={500} placeholder="What is this workspace for?" /></label><div className="inline-form-actions"><button type="button" className="app-button app-button-quiet" onClick={() => setShowWorkspaceForm(false)}>Cancel</button><button className="app-button app-button-primary" disabled={busy}>{busy ? "Creating…" : "Create workspace"}</button></div></form>}
 
           {!activeMembership ? (
@@ -230,6 +273,9 @@ export default function WorkspacePage() {
           ) : (
             <>
               <div className="dashboard-heading"><div><div className="app-eyebrow"><span /> TEAM SPACE</div><h1>{activeMembership.workspace.name}<span className="role-pill">{activeMembership.role.toLowerCase()}</span></h1><p>{activeMembership.workspace.description || "Keep your team's working documents in one place."}</p></div><div className="dashboard-actions">{canEdit && <button className="app-button app-button-primary" onClick={() => setShowDocumentForm((value) => !value)}>＋ New document</button>}</div></div>
+              {activeMembership.role === "OWNER" && <div className="workspace-invite-actions"><button className="app-button app-button-secondary" onClick={() => setShowInviteForm((value) => !value)}>{showInviteForm ? "Close invitation form" : "+ Invite teammate"}</button></div>}
+              {showInviteForm && activeMembership.role === "OWNER" && <form className="inline-create-card invite-create-card" onSubmit={inviteMember}><div><strong>Invite a teammate</strong><p>The person must already have an account. They will see the invitation when they sign in.</p></div><label>Account email<input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} maxLength={254} required placeholder="teammate@example.com" /></label><label>Access level<select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as "EDITOR" | "VIEWER")}><option value="EDITOR">Editor — can edit documents</option><option value="VIEWER">Viewer — read-only access</option></select></label><div className="inline-form-actions"><button type="button" className="app-button app-button-quiet" onClick={() => setShowInviteForm(false)}>Cancel</button><button className="app-button app-button-primary" disabled={busy}>{busy ? "Sending…" : "Send invitation"}</button></div></form>}
+
               <div className="stats-row"><div className="stat-card"><span className="stat-icon">▤</span><div><strong>{documents.length.toString().padStart(2, "0")}</strong><span>Documents</span></div></div><div className="stat-card"><span className="stat-icon green-icon">⌘</span><div><strong>{activeMembership.role === "OWNER" ? "Full" : activeMembership.role === "EDITOR" ? "Edit" : "Read"}</strong><span>Your access</span></div></div><div className="stat-card"><span className="stat-icon amber-icon">◷</span><div><strong>Versioned</strong><span>Document history</span></div></div></div>
 
               {showDocumentForm && <form className="inline-create-card document-create-card" onSubmit={createDocument}><div><strong>Create a document</strong><p>Start a shared document in this workspace.</p></div><label>Document title<input value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} minLength={1} maxLength={200} required autoFocus placeholder="e.g. Sprint planning notes" /></label><div className="inline-form-actions"><button type="button" className="app-button app-button-quiet" onClick={() => setShowDocumentForm(false)}>Cancel</button><button className="app-button app-button-primary" disabled={busy}>{busy ? "Creating…" : "Create document"}</button></div></form>}
