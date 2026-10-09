@@ -164,6 +164,33 @@ describe("document RBAC", () => {
 });
 
 describe("document version history", () => {
+  it("requires expectedVersion for REST updates to prevent lost updates", async () => {
+    const { owner, workspaceId } = await setup();
+    const doc = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "Concurrency Spec", content: "original" })
+      .expect(201);
+
+    const docId = doc.body.data._id as string;
+
+    const missingVersion = await request(app)
+      .patch(`/api/workspaces/${workspaceId}/documents/${docId}`)
+      .set(auth(owner))
+      .send({ content: "unsafe update without version" })
+      .expect(400);
+
+    expect(missingVersion.body.errors).toBeInstanceOf(Array);
+
+    const unchanged = await request(app)
+      .get(`/api/workspaces/${workspaceId}/documents/${docId}`)
+      .set(auth(owner))
+      .expect(200);
+
+    expect(unchanged.body.data.content).toBe("original");
+    expect(unchanged.body.data.version).toBe(0);
+  });
+
   it("records revisions and restores an earlier version", async () => {
     const { owner, invitee, workspaceId } = await setup();
     await request(app)

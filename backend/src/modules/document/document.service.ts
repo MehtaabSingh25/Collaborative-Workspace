@@ -111,79 +111,48 @@ export const updateDocument = async (
   userId: string,
   body: unknown,
 ) => {
-  const data = updateDocumentSchema.parse(body);
-
   await requireWorkspaceRole(workspaceId, userId, [
     WorkspaceRole.OWNER,
     WorkspaceRole.EDITOR,
   ]);
 
-  if (data.expectedVersion !== undefined) {
-    const $set: Record<string, unknown> = {
-      lastEditedBy: new mongoose.Types.ObjectId(userId),
-    };
+  const data = updateDocumentSchema.parse(body);
 
-    if (data.title !== undefined) {
-      $set.title = data.title;
-    }
-
-    if (data.content !== undefined) {
-      $set.content = data.content;
-    }
-
-    const document = await Document.findOneAndUpdate(
-      {
-        _id: documentId,
-        workspace: workspaceId,
-        version: data.expectedVersion,
-      },
-      { $set, $inc: { version: 1 } },
-      { new: true, runValidators: true },
-    );
-
-    if (!document) {
-      const existing = await Document.findOne({
-        _id: documentId,
-        workspace: workspaceId,
-      }).select("version");
-
-      if (!existing) {
-        throw new AppError("Document not found", 404);
-      }
-
-      throw new AppError("Document version conflict", 409);
-    }
-
-    await createDocumentRevision(document);
-
-    return {
-      success: true,
-      message: "Document updated successfully",
-      data: document,
-    };
-  }
-
-  const document = await Document.findOne({
-    _id: documentId,
-    workspace: workspaceId,
-  });
-
-  if (!document) {
-    throw new AppError("Document not found", 404);
-  }
+  const $set: Record<string, unknown> = {
+    lastEditedBy: new mongoose.Types.ObjectId(userId),
+  };
 
   if (data.title !== undefined) {
-    document.title = data.title;
+    $set.title = data.title;
   }
 
   if (data.content !== undefined) {
-    document.content = data.content;
+    $set.content = data.content;
   }
 
-  document.lastEditedBy = new mongoose.Types.ObjectId(userId);
-  document.version += 1;
+  const document = await Document.findOneAndUpdate(
+    {
+      _id: documentId,
+      workspace: workspaceId,
+      version: data.expectedVersion,
+    },
+    { $set, $inc: { version: 1 } },
+    { new: true, runValidators: true },
+  );
 
-  await document.save();
+  if (!document) {
+    const existing = await Document.findOne({
+      _id: documentId,
+      workspace: workspaceId,
+    }).select("version");
+
+    if (!existing) {
+      throw new AppError("Document not found", 404);
+    }
+
+    throw new AppError("Document version conflict", 409);
+  }
+
   await createDocumentRevision(document);
 
   return {
