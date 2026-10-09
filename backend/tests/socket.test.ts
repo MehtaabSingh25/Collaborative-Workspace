@@ -2,9 +2,10 @@ import http from "http";
 import type { AddressInfo } from "net";
 import request from "supertest";
 import { io as connect, type Socket as ClientSocket } from "socket.io-client";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import app from "../src/app.js";
 import { getIO, initializeSocket } from "../src/socket/index.js";
+import { resetAuthRateLimiter } from "../src/middleware/rate-limit.middleware.js";
 import { workspaceRoom } from "../src/socket/workspace.handlers.js";
 
 let server: http.Server;
@@ -20,6 +21,10 @@ beforeAll(async () => {
 
 afterEach(() => {
   clients.splice(0).forEach((c) => c.disconnect());
+});
+
+beforeEach(() => {
+  resetAuthRateLimiter();
 });
 
 afterAll(async () => {

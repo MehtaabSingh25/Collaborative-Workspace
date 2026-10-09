@@ -1,5 +1,6 @@
 import request from "supertest";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
+import { resetAuthRateLimiter } from "../src/middleware/rate-limit.middleware.js";
 import app from "../src/app.js";
 
 const register = async (name: string, email: string) => {
@@ -13,6 +14,10 @@ const register = async (name: string, email: string) => {
     .expect(200);
   return res.body.data.accessToken as string;
 };
+
+beforeEach(() => {
+  resetAuthRateLimiter();
+});
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
