@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { z, ZodError } from "zod";
 import AppError from "../utils/AppError.js";
 import Document from "../modules/document/document.model.js";
+import { DOCUMENT_CONTENT_MAX_LENGTH } from "../modules/document/document.validation.js";
 import {
   restoreDocument,
   updateDocument,
@@ -30,7 +31,7 @@ const documentPayloadSchema = z.object({
 });
 
 const documentUpdatePayloadSchema = documentPayloadSchema.extend({
-  content: z.string(),
+  content: z.string().max(DOCUMENT_CONTENT_MAX_LENGTH),
   version: z.number().int().nonnegative(),
 });
 

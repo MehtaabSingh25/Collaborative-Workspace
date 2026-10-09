@@ -163,6 +163,39 @@ describe("document RBAC", () => {
   });
 });
 
+describe("document content limits", () => {
+  it("rejects oversized content on create and update", async () => {
+    const { owner, workspaceId } = await setup();
+    const oversizedContent = "x".repeat(500_001);
+
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "Too Large", content: oversizedContent })
+      .expect(400);
+
+    const doc = await request(app)
+      .post(`/api/workspaces/${workspaceId}/documents`)
+      .set(auth(owner))
+      .send({ title: "Within Limit", content: "original" })
+      .expect(201);
+
+    await request(app)
+      .patch(`/api/workspaces/${workspaceId}/documents/${doc.body.data._id}`)
+      .set(auth(owner))
+      .send({ content: oversizedContent, expectedVersion: 0 })
+      .expect(400);
+
+    const unchanged = await request(app)
+      .get(`/api/workspaces/${workspaceId}/documents/${doc.body.data._id}`)
+      .set(auth(owner))
+      .expect(200);
+
+    expect(unchanged.body.data.content).toBe("original");
+    expect(unchanged.body.data.version).toBe(0);
+  });
+});
+
 describe("document version history", () => {
   it("requires expectedVersion for REST updates to prevent lost updates", async () => {
     const { owner, workspaceId } = await setup();
