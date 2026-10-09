@@ -10,6 +10,7 @@ import {
 } from "./workspace.controller.js";
 import documentRoutes from "../document/document.routes.js";
 import taskRoutes from "../task/task.routes.js";
+import chatRoutes from "../chat/chat.routes.js";
 
 const router = Router();
 
@@ -27,5 +28,6 @@ router.get("/:workspaceId", protect, getWorkspaceByIdController);
 
 router.use("/:workspaceId/documents", documentRoutes);
 router.use("/:workspaceId/tasks", taskRoutes);
+router.use("/:workspaceId/chat", chatRoutes);
 
 export default router;

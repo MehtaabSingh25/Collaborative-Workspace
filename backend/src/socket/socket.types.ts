@@ -26,6 +26,18 @@ export type DocumentUpdateAckResponse =
 
 export type DocumentPresenceUser = AuthenticatedSocketUser;
 
+export type ChatMessagePayload = {
+  _id: string;
+  workspaceId: string;
+  content: string;
+  createdAt: string;
+  sender: { id: string; name: string; email: string };
+};
+
+export type ChatAckResponse =
+  | { ok: true; message: ChatMessagePayload }
+  | { ok: false; message: string };
+
 export interface ClientToServerEvents {
   "workspace:join": (
     payload: unknown,
@@ -51,6 +63,10 @@ export interface ClientToServerEvents {
     payload: unknown,
     ack?: (response: DocumentUpdateAckResponse) => void,
   ) => void;
+  "chat:send": (
+    payload: unknown,
+    ack?: (response: ChatAckResponse) => void,
+  ) => void;
 }
 
 export interface ServerToClientEvents {
@@ -67,6 +83,7 @@ export interface ServerToClientEvents {
     updatedAt: string;
     version: number;
   }) => void;
+  "chat:message": (payload: ChatMessagePayload) => void;
 }
 
 export interface InterServerEvents {}

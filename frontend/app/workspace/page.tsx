@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import "./workspace.css";
+import { socket } from "../../src/lib/socket";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").replace(/\/$/, "");
 
@@ -15,6 +16,7 @@ type DocumentDetail = WorkspaceDocument & { content: string };
 type TaskStatus = "TODO" | "IN_PROGRESS" | "DONE";
 type TaskPriority = "LOW" | "MEDIUM" | "HIGH";
 type WorkspaceTask = { _id: string; title: string; description: string; status: TaskStatus; priority: TaskPriority; dueDate?: string; assignee?: { name?: string; email?: string } | null; createdBy?: { name?: string } };
+type ChatMessage = { _id: string; workspaceId: string; content: string; createdAt: string; sender: { id: string; name: string; email: string } };
 type ApiResult<T> = { success: boolean; data: T; message?: string };
 
 async function request<T>(path: string, token: string | null, init: RequestInit = {}): Promise<ApiResult<T>> {
@@ -47,6 +49,9 @@ export default function WorkspacePage() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState("");
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [tasks, setTasks] = useState<WorkspaceTask[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatConnected, setChatConnected] = useState(false);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDescription, setTaskDescription] = useState("");
@@ -134,6 +139,54 @@ export default function WorkspacePage() {
     }
     void loadDocuments();
     return () => { cancelled = true; };
+  }, [token, activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!token || !activeWorkspaceId) return;
+    let cancelled = false;
+    const workspaceId = activeWorkspaceId;
+    const joinWorkspace = () => {
+      socket.emit("workspace:join", { workspaceId }, (response: { ok: boolean; message?: string }) => {
+        if (cancelled) return;
+        if (response?.ok) setChatConnected(true);
+        else setError(response?.message || "Could not join workspace chat.");
+      });
+    };
+    const onConnect = () => joinWorkspace();
+    const onDisconnect = () => setChatConnected(false);
+    const onMessage = (message: ChatMessage) => {
+      if (message.workspaceId !== workspaceId) return;
+      setChatMessages((current) => current.some((item) => item._id === message._id) ? current : [...current, message].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+    };
+    socket.auth = { token };
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("chat:message", onMessage);
+    if (socket.connected) joinWorkspace();
+    else socket.connect();
+    async function loadChatHistory() {
+      try {
+        const result = await request<ChatMessage[]>(`/api/workspaces/${workspaceId}/chat/messages`, token);
+        if (!cancelled) {
+          setChatMessages((current) => {
+            const byId = new Map<string, ChatMessage>();
+            for (const message of result.data || []) byId.set(message._id, message);
+            for (const message of current) if (message.workspaceId === workspaceId) byId.set(message._id, message);
+            return [...byId.values()].filter((message) => message.workspaceId === workspaceId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+          });
+        }
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not load chat history.");
+      }
+    }
+    void loadChatHistory();
+    return () => {
+      cancelled = true;
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("chat:message", onMessage);
+      if (socket.connected) socket.emit("workspace:leave", { workspaceId });
+    };
   }, [token, activeWorkspaceId]);
 
   useEffect(() => {
@@ -241,6 +294,18 @@ export default function WorkspacePage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete task."); }
   }
 
+  async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const content = chatDraft.trim();
+    if (!token || !activeWorkspaceId || !content || !socket.connected || content.length > 2000) return;
+    setError("");
+    socket.emit("chat:send", { workspaceId: activeWorkspaceId, content }, (response: { ok: true; message: ChatMessage } | { ok: false; message: string }) => {
+      if (!response?.ok) { setError(response?.message || "Could not send message."); return; }
+      setChatMessages((current) => current.some((item) => item._id === response.message._id) ? current : [...current, response.message].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+      setChatDraft("");
+    });
+  }
+
   async function createDocument(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!token || !activeWorkspaceId) return;
     setBusy(true); setError("");
@@ -280,7 +345,8 @@ export default function WorkspacePage() {
 
   async function logout() {
     try { await request<unknown>("/api/auth/logout", token, { method: "POST" }); } catch { /* Clear local session even if the API is unavailable. */ }
-    setToken(null); setUser(null); setWorkspaces([]); setPendingInvitations([]); setActiveWorkspaceId(""); setDocuments([]); setActiveDocument(null); setNotice("You have been signed out.");
+    socket.disconnect();
+    setToken(null); setUser(null); setWorkspaces([]); setPendingInvitations([]); setActiveWorkspaceId(""); setDocuments([]); setActiveDocument(null); setChatMessages([]); setChatConnected(false); setNotice("You have been signed out.");
   }
 
   if (loading) return <main className="app-loading"><div className="loading-mark">C</div><p>Preparing your workspace…</p></main>;
@@ -342,6 +408,14 @@ export default function WorkspacePage() {
               {showTaskForm && canEdit && <form className="inline-create-card task-create-card" onSubmit={createTask}><div><strong>Create a task</strong><p>Give the team a clear owner, priority and deadline.</p></div><label>Task title<input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} minLength={1} maxLength={160} required placeholder="e.g. Prepare sprint demo" /></label><label>Description <span>(optional)</span><textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} maxLength={2000} rows={2} placeholder="Add context or acceptance criteria" /></label><label>Priority<select value={taskPriority} onChange={(event) => setTaskPriority(event.target.value as TaskPriority)}><option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option></select></label><label>Assignee email <span>(optional, active workspace member)</span><input type="email" value={taskAssigneeEmail} onChange={(event) => setTaskAssigneeEmail(event.target.value)} maxLength={254} placeholder="teammate@example.com" /></label><label>Due date <span>(optional)</span><input type="date" value={taskDueDate} onChange={(event) => setTaskDueDate(event.target.value)} /></label><div className="inline-form-actions"><button type="button" className="app-button app-button-quiet" onClick={() => setShowTaskForm(false)}>Cancel</button><button className="app-button app-button-primary" disabled={busy}>{busy ? "Creating…" : "Create task"}</button></div></form>}
 
               <section className="task-panel" aria-labelledby="task-heading"><div className="panel-heading"><div><h2 id="task-heading">Tasks</h2><p>Work tracked across your team</p></div><span className="count-pill">{tasks.length}</span></div>{tasks.length ? <div className="task-list">{tasks.map((task) => <article className="task-row" key={task._id}><div className={`task-priority-dot priority-${task.priority.toLowerCase()}`} aria-label={`${task.priority.toLowerCase()} priority`} /><div className="task-row-copy"><strong>{task.title}</strong>{task.description && <p>{task.description}</p>}<small>{task.assignee?.name ? `Assigned to ${task.assignee.name}` : "Unassigned"}{task.dueDate ? ` · Due ${new Date(task.dueDate).toLocaleDateString()}` : " · No due date"}</small></div><span className={`task-priority-label priority-text-${task.priority.toLowerCase()}`}>{task.priority}</span><select aria-label={`Status for ${task.title}`} className="task-status-select" value={task.status} disabled={!canEdit} onChange={(event) => void updateTask(task, { status: event.target.value as TaskStatus })}><option value="TODO">To do</option><option value="IN_PROGRESS">In progress</option><option value="DONE">Done</option></select>{canEdit && <button type="button" className="task-delete-button" onClick={() => void removeTask(task)} aria-label={`Delete ${task.title}`} title="Delete task">×</button>}</article>)}</div> : <div className="task-empty"><strong>No tasks yet</strong><p>Create tasks to track ownership, priorities and deadlines alongside your shared documents.</p>{canEdit && <button className="app-button app-button-secondary" onClick={() => setShowTaskForm(true)}>＋ Create first task</button>}</div>}</section>
+
+              <section className="chat-panel" aria-labelledby="chat-heading">
+                <div className="panel-heading"><div><h2 id="chat-heading">Team chat</h2><p>Quick conversations with workspace members</p></div><span className={`chat-connection ${chatConnected ? "is-connected" : ""}`}><i />{chatConnected ? "Live" : "Connecting"}</span></div>
+                <div className="chat-message-list" aria-live="polite">
+                  {chatMessages.length ? chatMessages.filter((message) => message.workspaceId === activeWorkspaceId).map((message) => <article className={`chat-message ${message.sender.id === user.id ? "own-message" : ""}`} key={message._id}><div className="chat-avatar" aria-hidden="true">{initials(message.sender.name)}</div><div className="chat-message-body"><div className="chat-message-meta"><strong>{message.sender.id === user.id ? "You" : message.sender.name}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time></div><p>{message.content}</p></div></article>) : <div className="chat-empty"><strong>No messages yet</strong><p>Start the conversation with your workspace team.</p></div>}
+                </div>
+                <form className="chat-composer" onSubmit={sendChatMessage}><label className="sr-only" htmlFor="chat-message-input">Message</label><textarea id="chat-message-input" value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} maxLength={2000} rows={2} placeholder={chatConnected ? "Write a message…" : "Connecting to chat…"} disabled={!chatConnected} required /><button className="app-button app-button-primary" disabled={!chatConnected || !chatDraft.trim()}>Send ↗</button><span>{chatDraft.length}/2000</span></form>
+              </section>
 
               {showDocumentForm && <form className="inline-create-card document-create-card" onSubmit={createDocument}><div><strong>Create a document</strong><p>Start a shared document in this workspace.</p></div><label>Document title<input value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} minLength={1} maxLength={200} required autoFocus placeholder="e.g. Sprint planning notes" /></label><div className="inline-form-actions"><button type="button" className="app-button app-button-quiet" onClick={() => setShowDocumentForm(false)}>Cancel</button><button className="app-button app-button-primary" disabled={busy}>{busy ? "Creating…" : "Create document"}</button></div></form>}
 
