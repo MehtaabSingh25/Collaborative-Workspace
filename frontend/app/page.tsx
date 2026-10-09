@@ -56,7 +56,7 @@ export default function Home() {
           <a href="#how-it-works">How it works</a>
           <a href="#tech-stack">Tech stack</a>
         </div>
-        <a className="nav-cta" href="#project">Explore the project <ArrowIcon /></a>
+        <a className="nav-cta" href="/workspace">Open workspace <ArrowIcon /></a>
       </nav>
 
       <section className="hero shell" id="top">
@@ -67,7 +67,7 @@ export default function Home() {
             A collaborative workspace for teams to organize work, edit documents in real time, and keep every important change within reach.
           </p>
           <div className="hero-actions">
-            <a className="button button-primary" href="#features">Explore features <ArrowIcon /></a>
+            <a className="button button-primary" href="/workspace">Launch workspace <ArrowIcon /></a>
             <a className="button button-secondary" href="#how-it-works">See how it works <span aria-hidden="true">↓</span></a>
           </div>
           <div className="hero-proof">
@@ -123,7 +123,7 @@ export default function Home() {
 
       <section className="stack-section" id="tech-stack"><div className="shell stack-inner"><div><div className="eyebrow"><span className="eyebrow-line" /> BUILT WITH PURPOSE</div><h2>A modern stack.<br /><span>Practical engineering.</span></h2><p>Type-safe application code, a modular API, persistent data, and event-driven collaboration.</p></div><div className="stack-content"><div className="stack-chips">{stack.map((item) => <span key={item}>{item}</span>)}</div><div className="architecture-note"><div className="architecture-icon">⌘</div><div><b>One connected architecture</b><p>Next.js client · Express API · MongoDB persistence · Socket.IO events</p></div></div></div></div></section>
 
-      <section className="closing-section shell" id="project"><div className="closing-panel"><div className="closing-decoration decoration-a" /><div className="closing-decoration decoration-b" /><div className="eyebrow"><span className="status-dot" /> THE PROJECT</div><h2>Make teamwork<br />feel <span>effortless.</span></h2><p>Collaborative Workspace is an ongoing full-stack project focused on shared documents, access control, and real-time team workflows.</p><a className="button button-light" href="https://github.com/MehtaabSingh25/Collaborative-Workspace" target="_blank" rel="noreferrer">View source on GitHub <ArrowIcon /></a><div className="closing-index">COLLABORATIVE WORKSPACE <span>— 2026</span></div></div></section>
+      <section className="closing-section shell" id="project"><div className="closing-panel"><div className="closing-decoration decoration-a" /><div className="closing-decoration decoration-b" /><div className="eyebrow"><span className="status-dot" /> THE PROJECT</div><h2>Make teamwork<br />feel <span>effortless.</span></h2><p>Collaborative Workspace is an ongoing full-stack project focused on shared documents, access control, and real-time team workflows.</p><a className="button button-light" href="/workspace">Open your workspace <ArrowIcon /></a><div className="closing-index">COLLABORATIVE WORKSPACE <span>— 2026</span></div></div></section>
 
       <footer className="footer shell"><a className="brand footer-brand" href="#top"><span className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></span><span>collabspace<span className="brand-period">.</span></span></a><p>Built to bring good work together.</p><a href="https://github.com/MehtaabSingh25/Collaborative-Workspace" target="_blank" rel="noreferrer">GitHub ↗</a><span className="footer-copy">© 2026 Collaborative Workspace</span></footer>
     </main>
