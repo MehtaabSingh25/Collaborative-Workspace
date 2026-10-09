@@ -9,6 +9,7 @@ import {
   getPendingInvitationsController,
 } from "./workspace.controller.js";
 import documentRoutes from "../document/document.routes.js";
+import taskRoutes from "../task/task.routes.js";
 
 const router = Router();
 
@@ -25,5 +26,6 @@ router.post("/:workspaceId/accept", protect, acceptInvitationController);
 router.get("/:workspaceId", protect, getWorkspaceByIdController);
 
 router.use("/:workspaceId/documents", documentRoutes);
+router.use("/:workspaceId/tasks", taskRoutes);
 
 export default router;
