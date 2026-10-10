@@ -451,3 +451,60 @@ describe("document rooms and presence", () => {
     expect(persisted.body.data.version).toBe(3);
   });
 });
+
+describe("real-time chat", () => {
+  it("broadcasts persisted messages to workspace members and rejects outsiders", async () => {
+    const { owner, invitee, outsider, workspaceId } = await setup();
+    await request(app)
+      .post(`/api/workspaces/${workspaceId}/accept`)
+      .set(auth(invitee))
+      .expect(200);
+
+    const ownerClient = await connectClient(owner);
+    const inviteeClient = await connectClient(invitee);
+    const outsiderClient = await connectClient(outsider);
+
+    const ownerJoin = await emitAck<{ ok: boolean }>(ownerClient, "workspace:join", { workspaceId });
+    const inviteeJoin = await emitAck<{ ok: boolean }>(inviteeClient, "workspace:join", { workspaceId });
+    expect(ownerJoin.ok).toBe(true);
+    expect(inviteeJoin.ok).toBe(true);
+
+    const received = new Promise<{ content: string; workspaceId: string }>((resolve) => {
+      inviteeClient.once("chat:message", resolve);
+    });
+    const sent = await emitAck<{ ok: boolean; message?: { content: string } }>(ownerClient, "chat:send", {
+      workspaceId,
+      content: "Hello from the integration test",
+    });
+    expect(sent.ok).toBe(true);
+    expect(sent.message?.content).toBe("Hello from the integration test");
+    expect((await received).content).toBe("Hello from the integration test");
+
+    const outsiderJoin = await emitAck<{ ok: boolean }>(outsiderClient, "workspace:join", { workspaceId });
+    expect(outsiderJoin.ok).toBe(false);
+    const outsiderSend = await emitAck<{ ok: boolean }>(outsiderClient, "chat:send", {
+      workspaceId,
+      content: "This must not be stored",
+    });
+    expect(outsiderSend.ok).toBe(false);
+
+    const history = await request(app)
+      .get(`/api/workspaces/${workspaceId}/chat/messages`)
+      .set(auth(owner))
+      .expect(200);
+    expect(history.body.data).toHaveLength(1);
+    expect(history.body.data[0].content).toBe("Hello from the integration test");
+  });
+
+  it("rejects empty and oversized chat messages", async () => {
+    const { owner, workspaceId } = await setup();
+    const client = await connectClient(owner);
+    const joined = await emitAck<{ ok: boolean }>(client, "workspace:join", { workspaceId });
+    expect(joined.ok).toBe(true);
+
+    const empty = await emitAck<{ ok: boolean }>(client, "chat:send", { workspaceId, content: "   " });
+    const oversized = await emitAck<{ ok: boolean }>(client, "chat:send", { workspaceId, content: "x".repeat(2001) });
+    expect(empty.ok).toBe(false);
+    expect(oversized.ok).toBe(false);
+  });
+});
